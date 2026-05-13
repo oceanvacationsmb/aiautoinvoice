@@ -3,6 +3,9 @@ import multer from "multer";
 import cors from "cors";
 import fs from "fs";
 import OpenAI from "openai";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 
@@ -18,15 +21,21 @@ const openai = new OpenAI({
 });
 
 app.post("/read-invoice", upload.single("file"), async (req, res) => {
+  let filePath = null;
 
   try {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("Missing OPENAI_API_KEY. Add it in your environment secrets.");
+    }
 
-    const filePath = req.file.path;
+    if (!req.file) {
+      throw new Error("No file uploaded.");
+    }
+
+    filePath = req.file.path;
 
     const fileBuffer = fs.readFileSync(filePath);
-
     const base64File = fileBuffer.toString("base64");
-
     const mimeType = req.file.mimetype;
 
     const response = await openai.responses.create({
@@ -35,44 +44,56 @@ app.post("/read-invoice", upload.single("file"), async (req, res) => {
         {
           role: "user",
           content: [
-
             {
               type: "input_text",
               text: `
 You are an invoice extraction AI.
 
-Read this invoice, screenshot, receipt, handwritten contractor note, venmo screenshot, zelle screenshot or payment proof.
+Read this invoice, screenshot, receipt, handwritten contractor note, Venmo screenshot, Zelle screenshot, payment proof, or material receipt.
 
 Return ONLY valid JSON.
-
-Rules:
-
-- Do NOT explain anything.
-- Do NOT use markdown.
-- Return ONLY raw JSON.
+Do NOT explain anything.
+Do NOT use markdown.
+Do NOT wrap the JSON in code blocks.
 
 Property aliases:
 213/B = 213B
 213 B = 213B
+213-B = 213B
 113-12-A = 113A
+113 12 A = 113A
+11312A = 113A
 113-12-B = 113B
+113 12 B = 113B
+11312B = 113B
+204-28 = 204/28
+204/28 = 204/28
 Tuscan A = Tuscan A
 Tuscan B = Tuscan B
 Tuscan C = Tuscan C
 
-Categories allowed:
-Cleaning
-Plumbing
-Electrical
-HVAC
-Pool
-Elevator
-Maintenance
-Materials
-Pest Control
-Other
+Category rules:
+Cleaning = cleaning, housekeeping, turnover
+Plumbing = toilet, shower, faucet, drain, leak, valve
+Electrical = electric, outlet, breaker, light switch
+HVAC = air conditioning, AC, heat, thermostat
+Pool = pool, spa, salt cell, chlorine
+Elevator = elevator, lift
+Materials = Walmart, Home Depot, Lowes, receipt for supplies
+Maintenance = repair, labor, handyman, general work
+Pest Control = pest, bugs, roach, ants
+Other = unclear
 
-JSON format:
+Amount rules:
+Use the final total paid, total due, grand total, or payment amount.
+For screenshots showing negative amounts, return the positive expense amount.
+Do not return subtotal if a total exists.
+
+Date rules:
+Use invoice date, issue date, service date, payment date, or receipt date.
+Return date as YYYY-MM-DD if possible.
+
+Return exactly this JSON structure:
 
 {
   "vendor": "",
@@ -87,32 +108,36 @@ JSON format:
 }
               `
             },
-
             {
               type: "input_image",
               image_url: `data:${mimeType};base64,${base64File}`
             }
-
           ]
         }
       ]
     });
 
-    fs.unlinkSync(filePath);
+    const resultText = response.output_text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
 
-    const result = response.output_text;
+    const parsed = JSON.parse(resultText);
 
-    res.json(JSON.parse(result));
+    res.json(parsed);
 
   } catch (error) {
-
     console.error(error);
 
     res.status(500).json({
       error: error.message
     });
-  }
 
+  } finally {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
 });
 
 app.listen(3000, () => {
