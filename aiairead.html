@@ -1,1 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Auto Invoice</title>
+  <style>
+    body {
+      font-family: Arial;
+      background: #f5f5f5;
+      padding: 20px;
+    }
 
+    #dropZone {
+      border: 3px dashed #777;
+      background: white;
+      padding: 45px;
+      text-align: center;
+      font-size: 22px;
+      margin-bottom: 20px;
+    }
+
+    #dropZone.dragover {
+      background: #e8f0ff;
+      border-color: #1a73e8;
+    }
+
+    .card {
+      background: white;
+      border: 1px solid #ccc;
+      padding: 15px;
+      margin-top: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+
+    th {
+      background: #222;
+      color: white;
+    }
+
+    input {
+      width: 100%;
+      padding: 6px;
+      box-sizing: border-box;
+    }
+
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>AI Auto Invoice</h2>
+
+<div id="dropZone">
+  Drag and drop invoices here<br>
+  <small>JPG, PNG, PDF</small>
+</div>
+
+<div id="results"></div>
+
+<script>
+const dropZone = document.getElementById("dropZone");
+const results = document.getElementById("results");
+
+dropZone.addEventListener("dragover", function(e) {
+  e.preventDefault();
+  dropZone.classList.add("dragover");
+});
+
+dropZone.addEventListener("dragleave", function() {
+  dropZone.classList.remove("dragover");
+});
+
+dropZone.addEventListener("drop", function(e) {
+  e.preventDefault();
+  dropZone.classList.remove("dragover");
+
+  const files = Array.from(e.dataTransfer.files);
+
+  files.forEach(function(file) {
+    sendFile(file);
+  });
+});
+
+async function sendFile(file) {
+  const card = document.createElement("div");
+  card.className = "card";
+
+  card.innerHTML = `
+    <h3>${file.name}</h3>
+    <p>Reading with AI...</p>
+  `;
+
+  results.appendChild(card);
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const response = await fetch("/read-invoice", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      card.innerHTML = `
+        <h3>${file.name}</h3>
+        <p class="error">Error: ${data.error || "AI reading failed"}</p>
+      `;
+      return;
+    }
+
+    showResult(card, file.name, data);
+
+  } catch (error) {
+    card.innerHTML = `
+      <h3>${file.name}</h3>
+      <p class="error">Connection error. Server may not be running.</p>
+    `;
+  }
+}
+
+function showResult(card, fileName, data) {
+  card.innerHTML = `
+    <h3>${fileName}</h3>
+    <table>
+      <tr><th>Field</th><th>Value</th></tr>
+      ${row("Vendor", data.vendor)}
+      ${row("Invoice Date", data.invoice_date)}
+      ${row("Invoice Number", data.invoice_number)}
+      ${row("Property", data.property)}
+      ${row("Amount", data.amount)}
+      ${row("Category", data.category)}
+      ${row("Description", data.description)}
+      ${row("Confidence", data.confidence)}
+      ${row("Unclear", data.unclear)}
+    </table>
+  `;
+}
+
+function row(label, value) {
+  return `
+    <tr>
+      <td>${label}</td>
+      <td><input value="${value ?? ""}"></td>
+    </tr>
+  `;
+}
+</script>
+
+</body>
+</html>
